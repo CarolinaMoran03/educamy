@@ -28,6 +28,13 @@
         {{ form |crispy }}
         <button class="bg-purple-700 mt-4 border-2 border-purple-700 text-white hover:bg-purple-900 hover:text-white text-base hover:border-purple-900 rounded-lg py-2.5 px-5 transition-colors w-full text-md">Entrar</button>
       </form>
+      {% if messages %}
+        {% for message in messages %}
+          <div class="bg-red-100 text-red-800 px-4 py-2 rounded mb-4">
+              {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
       <div class="z-20">
         <p class="text-center mt-3 text-[14px]">
           No tienes una cuenta aun?

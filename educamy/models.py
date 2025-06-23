@@ -5,14 +5,7 @@ from django.utils import timezone
 
 # Create your models here.
 
-class Profile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    photo = models.ImageField(upload_to='user_photos/', blank=True, null=True)  # Carpeta donde se guardan las fotos
-    full_name = models.CharField(max_length=100),
-    
 
-    def __str__(self):
-        return f"Perfil de {self.user.username}"
     
 
 
@@ -50,8 +43,13 @@ class AnualPlan(models.Model):
     grade = models.CharField(max_length=200, default='Primero')
     evaluation_criteria = models.JSONField(default=list)
     evaluation_indicators = models.JSONField(default=list)
+    teacher_name = models.CharField(max_length=200, blank=True, null=True)
+    college_name = models.CharField(max_length=200, blank=True, null=True)
+    area = models.CharField(max_length=200, blank=True, null=True)
+    parallel = models.CharField(max_length=200, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+ 
 
     def __str__(self):
         return f"Unidad: {self.unit_title} - {self.generatedContentId.school_subject.name}"
@@ -76,8 +74,13 @@ class MicroPlan(models.Model):
     content = models.TextField()
     evaluation_criteria = models.JSONField(default=list)
     evaluation_indicators = models.JSONField(default=list)
+    teacher_name = models.CharField(max_length=200, blank=True, null=True)
+    college_name = models.CharField(max_length=200, blank=True, null=True)
+    area = models.CharField(max_length=200, blank=True, null=True)
+    parallel = models.CharField(max_length=200, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+   
 
     def __str__(self):
         return f"Plan Microcurricular de - {self.school_subject.name} ({self.year})"
@@ -85,21 +88,15 @@ class MicroPlan(models.Model):
 
 
 
-class Questions(models.Model):
-    generatedContentId = models.ForeignKey(GeneratedContent, on_delete=models.CASCADE, related_name='generated_questions', null=True, blank=True)
-    question_text = models.TextField()
-    pdf_file = models.FileField(upload_to='questions_pdf/', null=True, blank=True)
-    answer_choices = models.JSONField(default=list)  
-    correct_answer = models.CharField(max_length=200)  
-    generated_content = models.TextField()
+class PptxFile(models.Model):
+    anual_plan = models.ForeignKey('AnualPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='pptx_files')
+    micro_plan = models.ForeignKey('MicroPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='pptx_files')
+    pptxfile = models.FileField(upload_to='pptx_files/', null=True, blank=True)
+    title = models.CharField(max_length=200, blank=True, null=True)
+    date = models.DateField()
+    description = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Pregunta de {self.generatedContentId.school_subject.name}"
-
-
-
 
 
 

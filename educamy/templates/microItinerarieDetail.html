@@ -83,6 +83,59 @@
                 <!-- Los indicadores de evaluación aparecerán aquí -->
             </ul>
         </div>
+
+
+
+        <div class="bg-white rounded-xl shadow p-4 w-full">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold">Diapositivas de Unidad </h2>
+                <button class="bg-black text-white px-4 py-2 rounded-md hover:bg-gray-800">
+                    Generar Nueva Diapositiva
+                </button>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm text-left">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                        <tr>
+                            <th class="px-4 py-2">Título</th>
+                            <th class="px-4 py-2">Tema</th>
+                            <th class="px-4 py-2">Estado</th>
+                            <th class="px-4 py-2">Fecha</th>
+                            <th class="px-4 py-2">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Fila 1 -->
+                        <tr class="border-b">
+                            <td class="px-4 py-2 font-medium text-gray-900">Números del 0 al 5</td>
+                            <td class="px-4 py-2">Conteo oral y escrito de los números del 0 al 5</td>
+                          
+                            <td class="px-4 py-2">
+                                <span class="bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">Completada</span>
+                            </td>
+                            <td class="px-4 py-2">2025-06-10</td>
+                            <td class="px-4 py-2 flex gap-2">
+                                <button title="Ver"><i class="fa-solid fa-eye">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye-icon lucide-eye"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                                </button>
+                                <button title="Descargar">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+                                </button>
+                                <button title="Eliminar" class="text-red-500">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-icon lucide-trash"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                </button>
+                            </td>
+                        </tr>
+
+                        
+
+                        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     {% endif %}
 </section>
 
