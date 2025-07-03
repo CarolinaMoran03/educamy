@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
 from django.contrib import messages
 from django.utils.translation import activate
 from .forms import CreateUser
@@ -13,31 +13,22 @@ import google.generativeai as genai
 from bs4 import BeautifulSoup
 from datetime import timedelta
 from django.contrib.auth.decorators import login_required
-from .models import GeneratedContent, SchoolSubject, MicroPlan, AnualPlan
-from .forms import itinerarieForm, AddSchoolSubjectForm
+from .models import GeneratedContent, SchoolSubject, MicroPlan, AnualPlan, Quiz, Profile
+from .forms import itinerarieForm, AddSchoolSubjectForm, UpdateProfile
 from django.shortcuts import get_object_or_404
 from math import ceil
 from django.contrib.auth.models import User
 import json
-import qrcode
-import base64
-from io import BytesIO
-from weasyprint import HTML
-import tempfile
-from datetime import datetime
-from educamy.models import AnualPlan, GeneratedContent
-from educamy.models import MicroPlan, GeneratedContent
 # Cargar variables de entorno
 load_dotenv()
 from educamy.services.genai import GENAI_API_KEY, model
 from django.utils.decorators import method_decorator
-
-
-
-
-
-
-
+import qrcode
+import base64
+from io import BytesIO
+from django.dispatch import receiver
+from django.db.models.signals import post_save
+from django.contrib.auth.decorators import login_required
 
 
 
@@ -67,7 +58,7 @@ def loginView(request):
             user = authenticate(username= username, password=password)
             if user is not None:
                 login(request, user)
-                messages.success(request, f'Bienvenido {username}')
+                # messages.success(request, f'Bienvenido {username}')
                 return redirect('educamy:dashboard')
             else:
                 messages.error(request, 'Usuario o contraseña incorrectos')
@@ -85,6 +76,70 @@ def loginView(request):
 def logoutApp(request):
     logout(request)
     return redirect('educamy:login')
+
+@login_required
+def userProfile(request, pk):
+    activate('es')
+
+    if request.user.pk != pk:
+        # messages.error(request, "No tienes permiso para ver este perfil.")
+        return redirect('educamy:dashboard')
+
+
+    user = get_object_or_404(User, pk=pk)
+    
+    if request.method == 'POST':
+        form = UpdateProfile(request.POST, request.FILES, instance=request.user)
+        if form.is_valid():
+            form.save()
+            return redirect('educamy:profile', pk=request.user.pk)
+    else:
+        form = UpdateProfile(instance=request.user)
+
+
+    context = {
+        'user': user,
+        'form': form,
+        'user_photo': request.user.profile.photo.url if request.user.profile.photo else None
+
+        
+    }
+    return render(request, 'profile.html', context)
+
+
+
+def changePassword(request):
+    activate('es')
+    if request.method == 'POST':
+        form = PasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            form.save()
+            
+            # Actualizamos la sesión para que no se cierre al cambiar la contraseña
+            update_session_auth_hash(request, form.user)
+            
+            # Redirigimos a la página del perfil del usuario
+            return redirect('educamy:profile', pk=request.user.pk)  # Pasamos el pk del usuario
+    else:
+        form = PasswordChangeForm(request.user) 
+
+    return render(request, 'changePassword.html', {'form': form})
+
+
+
+
+
+# Crear un perfil por cada usuario creado
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.create(user=instance)    
+
+
+# Guardar el perfil creado
+@receiver(post_save, sender=User)
+def save_user_profile(sender, instance, **kwargs):
+    instance.profile.save()
 
 
 @method_decorator(login_required, name='dispatch')
@@ -139,7 +194,7 @@ class AnnualPlanDeleteView(View):
     def post(self, request, pk):
         annualItineraries = get_object_or_404(AnualPlan, pk=pk, generatedContentId__user=request.user)
         annualItineraries.delete()
-        messages.success(request, 'Plan anual eliminado correctamente.')
+        # messages.success(request, 'Plan anual eliminado correctamente.')
         return redirect('educamy:itineraries')
         
 @method_decorator(login_required, name='dispatch')
@@ -147,7 +202,7 @@ class MicroPlanDeleteView(View):
     def post(self, request, pk):
         microItineraries = get_object_or_404(MicroPlan, pk=pk, generatedContentId__user=request.user)
         microItineraries.delete()
-        messages.success(request, 'Plan microcurricular eliminado correctamente.')
+        # messages.success(request, 'Plan microcurricular eliminado correctamente.')
         return redirect('educamy:itineraries')
 
 @method_decorator(login_required, name='dispatch')
@@ -203,37 +258,543 @@ class SchoolSubjectDeleteView(View):
 
 
 
+
+
+
+def generate_questions_html(preguntas_texto):
+    """Función auxiliar para generar HTML de las preguntas con opciones múltiples"""
+    lineas = [linea.strip() for linea in preguntas_texto.splitlines() if linea.strip()]
+    html_preguntas = ""
+    
+    i = 0
+    pregunta_num = 1
+    
+    while i < len(lineas):
+        linea = lineas[i]
+        
+        # Buscar el inicio de una pregunta (línea que empiece con número)
+        if linea.startswith(f"{pregunta_num}."):
+            # Extraer la pregunta
+            pregunta = linea[len(f"{pregunta_num}."):].strip()
+            
+            html_preguntas += f"""
+            <div class="question-item">
+                <div class="question-number">Pregunta {pregunta_num}:</div>
+                <div style="margin-bottom: 10px; font-weight: bold;">{pregunta}</div>
+            """
+            
+            # Buscar las opciones A, B, C, D
+            i += 1
+            opciones_html = ""
+            
+            while i < len(lineas) and any(lineas[i].startswith(f"{letra})") for letra in ['A', 'B', 'C', 'D']):
+                opcion = lineas[i]
+                opciones_html += f"""
+                    <div style="margin-bottom: 5px; padding-left: 20px;">
+                        {opcion}
+                    </div>
+                """
+                i += 1
+            
+            html_preguntas += opciones_html
+            
+            # Agregar espacio para respuesta
+            html_preguntas += f"""
+                <div class="answer-space">
+                    <em style="color: #666; font-size: 10px;">Respuesta seleccionada:</em>
+                    <div style="height: 30px; border: 1px dashed #ccc; margin-top: 5px; background-color: white;"></div>
+                </div>
+            </div>
+            """
+            
+            pregunta_num += 1
+        else:
+            i += 1
+    
+    return html_preguntas
+
+
+
 @method_decorator(login_required, name='dispatch')
 class AnnualItinerarieDetailView(View):
     def get(self, request, pk):
         annualItinerarie = get_object_or_404(AnualPlan, pk=pk, generatedContentId__user=request.user)
+
+        all_quizzes = Quiz.objects.filter(anual_plan=annualItinerarie)
+        
+        # Organizar quizzes por unidad
+        quizzes_by_unit = {}
+        total_units = len(annualItinerarie.unit_title)
+
+
         duration = (annualItinerarie.end_date - annualItinerarie.start_date).days
         counter = len(annualItinerarie.unit_title)
         print(counter)
+        
+
+
+        for unit_num in range(1, total_units + 1):
+            quizzes_by_unit[unit_num] = []
+
+
+        # Agrupar quizzes por número de unidad
+        for quiz in all_quizzes:
+            unit_number = quiz.unit_number  # Asumiendo que tienes este campo
+            if unit_number in quizzes_by_unit:
+                quizzes_by_unit[unit_number].append({
+                    'id': quiz.id,
+                    'title': quiz.title,
+                    'content_topic': quiz.content_topic,
+                    'status': quiz.status,  # o el campo que uses para el estado
+                    'unit_number': quiz.unit_number,
+                    'pdf_file': quiz.pdf_file.url if quiz.pdf_file else '',
+                    'created_date': quiz.created_date.strftime('%Y-%m-%d'),
+                })
+
+        # Convertir a lista ordenada por unidad
+        quizzes_organized = []
+        for unit_num in range(1, total_units + 1):
+            quizzes_organized.append(quizzes_by_unit[unit_num])
+
+
         context = {
              'annualItinerarie': annualItinerarie,
              'duration': duration,
              'counter': counter,
-             
+             'quizzes': quizzes_organized,
             
         }
+        
         return render(request, 'annualItinerarieDetail.html', context)
+
+
+    def post(self, request, pk):
+        annualItinerarie = get_object_or_404(AnualPlan, pk=pk, generatedContentId__user=request.user)
+
+        all_quizzes = Quiz.objects.filter(anual_plan=annualItinerarie)
+        
+        # Organizar quizzes por unidad
+        quizzes_by_unit = {}
+        total_units = len(annualItinerarie.unit_title)
+
+        duration = (annualItinerarie.end_date - annualItinerarie.start_date).days
+        counter = len(annualItinerarie.unit_title)
+
+        for unit_num in range(1, total_units + 1):
+            quizzes_by_unit[unit_num] = []
+
+
+        # Agrupar quizzes por número de unidad
+        for quiz in all_quizzes:
+            unit_number = quiz.unit_number  # Asumiendo que tienes este campo
+            if unit_number in quizzes_by_unit:
+                quizzes_by_unit[unit_number].append({
+                    'id': quiz.id,
+                    'title': quiz.title,
+                    'content_topic': quiz.content_topic,
+                    'status': quiz.status,  # o el campo que uses para el estado
+                    'unit_number': quiz.unit_number,
+                    'pdf_file': quiz.pdf_file.url if quiz.pdf_file else '',
+                    'created_date': quiz.created_date.strftime('%Y-%m-%d'),
+                })
+
+        # Convertir a lista ordenada por unidad
+        quizzes_organized = []
+        for unit_num in range(1, total_units + 1):
+            quizzes_organized.append(quizzes_by_unit[unit_num])
+
+
+
+        context = {
+            'annualItinerarie': annualItinerarie,
+            'duration': duration,
+            'counter': counter,
+            'quizzes': quizzes_organized
+        }
+        content = request.POST.get('content')
+        unit_number = request.POST.get('unit_number')
+        annual_plan_id = request.POST.get('annual_plan_id')
+
+        # Llama a Gemini para generar las preguntas
+        preguntas = generar_preguntas_quiz(content)
+
+        titulo = f"Quiz Unidad {unit_number}"
+
+        # 1. Crea el quiz sin el PDF (el campo pdf_file puede quedar vacío por ahora)
+        quiz = Quiz.objects.create(
+            title=titulo,
+            unit_number=unit_number,
+            content_topic=content,
+            anual_plan_id=annual_plan_id,
+            created_by=request.user,
+            status='Generado'
+        )
+
+        # 2. Ahora sí genera el PDF y lo asocia al quiz
+        generar_pdf_quiz(titulo, preguntas, unit_number, content, quiz)
+        # (Tu función genera y guarda el PDF en quiz.pdf_file)
+
+        # 3. Listo, ahora puedes renderizar la página de detalle
+        return redirect('educamy:detail_annual_plan', pk=pk)
+    
+
+
+def generar_pdf_quiz(titulo, preguntas_texto, unidad, tema, quiz):
+    html_string = f"""
+    <html>
+        <head>
+            <style>
+                @page {{
+                    size: A4 portrait;
+                    margin: 15mm;
+                }}
+                body {{
+                    font-family: 'Arial', sans-serif;
+                    font-size: 11px;
+                    margin: 0;
+                    color: #000;
+                    line-height: 1.4;
+                }}
+                .header-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 15px;
+                    border: 2px solid #000;
+                }}
+                .header-table td {{
+                    padding: 10px;
+                    vertical-align: middle;
+                    border-right: 1px solid #000;
+                }}
+                .header-table td:last-child {{
+                    border-right: none;
+                }}
+                .logo-cell {{
+                    width: 20%;
+                    text-align: center;
+                    background-color: #f5f5f5;
+                }}
+                .title-cell {{
+                    width: 60%;
+                    text-align: center;
+                    font-weight: bold;
+                    font-size: 16px;
+                    background-color: #333;
+                    color: white;
+                }}
+                .unit-cell {{
+                    width: 20%;
+                    text-align: center;
+                    font-weight: bold;
+                    font-size: 14px;
+                    background-color: #f5f5f5;
+                    color: #000;
+                }}
+                .tema-section {{
+                    text-align: center;
+                    margin-bottom: 15px;
+                    padding: 8px;
+                    background-color: #f0f0f0;
+                    border: 1px solid #999;
+                    font-weight: bold;
+                    color: #000;
+                }}
+                .student-info {{
+                    margin-bottom: 15px;
+                    font-size: 10px;
+                }}
+                .info-grid {{
+                    display: table;
+                    width: 100%;
+                    border-collapse: separate;
+                    border-spacing: 15px 0;
+                }}
+                .info-left {{
+                    display: table-cell;
+                    width: 50%;
+                    vertical-align: top;
+                }}
+                .info-right {{
+                    display: table-cell;
+                    width: 50%;
+                    vertical-align: top;
+                }}
+                .info-row {{
+                    margin-bottom: 8px;
+                    display: flex;
+                    align-items: center;
+                }}
+                .info-label {{
+                    font-weight: bold;
+                    min-width: 50px;
+                    margin-right: 8px;
+                    color: #000;
+                }}
+                .info-line {{
+                    border-bottom: 1px solid #000;
+                    flex-grow: 1;
+                    height: 18px;
+                }}
+                .grade-section {{
+                    float: right;
+                    width: 120px;
+                    border: 2px solid #000;
+                    padding: 10px;
+                    text-align: center;
+                    background-color: white;
+                    margin-left: 20px;
+                    margin-bottom: 15px;
+                }}
+                .grade-title {{
+                    font-weight: bold;
+                    margin-bottom: 8px;
+                    color: #000;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                }}
+                .grade-box {{
+                    border: 2px solid #000;
+                    width: 50px;
+                    height: 50px;
+                    margin: 8px auto;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 20px;
+                    font-weight: bold;
+                    background: white;
+                }}
+                .grade-text {{
+                    font-size: 9px;
+                    margin: 5px 0;
+                    color: #000;
+                    font-weight: normal;
+                }}
+                .signature-section {{
+                    margin-top: 10px;
+                    font-size: 9px;
+                    color: #000;
+                }}
+                .signature-line {{
+                    border-bottom: 1px solid #000;
+                    margin-top: 8px;
+                    height: 20px;
+                }}
+                .instructions {{
+                    background-color: #f8f8f8;
+                    border: 1px solid #ccc;
+                    padding: 12px;
+                    margin-bottom: 20px;
+                    font-size: 10px;
+                }}
+                .instructions-icon {{
+                    color: #000;
+                    font-weight: bold;
+                    font-size: 11px;
+                }}
+                .questions-container {{
+                    background-color: white;
+                    border: 1px solid #dee2e6;
+                    padding: 15px;
+                    border-radius: 5px;
+                }}
+                .question-item {{
+                    margin-bottom: 20px;
+                    padding: 10px;
+                    border-left: 4px solid #007bff;
+                    background-color: #f8f9fa;
+                }}
+                .question-number {{
+                    font-weight: bold;
+                    color: #007bff;
+                    margin-bottom: 5px;
+                }}
+                .answer-space {{
+                    margin-top: 10px;
+                    border-top: 1px dashed #ccc;
+                    padding-top: 10px;
+                    min-height: 40px;
+                }}
+                .footer {{
+                    position: fixed;
+                    bottom: 10mm;
+                    left: 15mm;
+                    right: 15mm;
+                    text-align: center;
+                    font-size: 10px;
+                    color: #666;
+                    border-top: 1px solid #ccc;
+                    padding-top: 5px;
+                }}
+            </style>
+        </head>
+        <body>
+            <!-- Header con logo y título -->
+            <table class="header-table">
+                <tr>
+                    <td class="logo-cell">
+                        <img src="https://educacion.gob.ec/wp-content/uploads/2024/03/Footer-1.png" 
+                             style="max-height: 50px; max-width: 100%;" alt="Logo Ministerio" />
+                    </td>
+                    <td class="title-cell">
+                        {titulo}
+                    </td>
+                    <td class="unit-cell">
+                        Calificación<br>
+                        <span style="font-size: 18px; font-weight: bold;">_____</span>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Tema -->
+            <div class="tema-section">
+                <strong>TEMA:</strong> {tema}
+            </div>
+
+            <div class="student-info">
+                <div class="info-grid">
+                    <div class="info-left">
+                        <div class="info-row">
+                            <span class="info-label">Nombre:</span>
+                            <div class="info-line"></div>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Curso:</span>
+                            <div class="info-line"></div>
+                        </div>
+                    </div>
+                    <div class="info-right">
+                        <div class="info-row">
+                            <span class="info-label">Fecha:</span>
+                            <div class="info-line"></div>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Paralelo:</span>
+                            <div class="info-line"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+            
+            <div style="clear: both;"></div>
+
+            <!-- Instrucciones -->
+            <div class="instructions">
+                <span class="instructions-icon">📋 INSTRUCCIONES:</span> Lee cuidadosamente cada pregunta y responde de manera completa y clara. 
+                Utiliza el espacio proporcionado para cada respuesta. Si necesitas más espacio, continúa en el reverso de la hoja.
+            </div>
+
+            <!-- Preguntas -->
+            <div class="questions-container">
+                <h3 style="margin-top: 0; color: #007bff; text-align: center;">PREGUNTAS</h3>
+                {generate_questions_html(preguntas_texto)}
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                Evaluación Académica - Ministerio de Educación del Ecuador
+            </div>
+        </body>
+    </html>
+    """
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as output:
+        html = HTML(string=html_string)
+        html.write_pdf(output.name)
+    
+    with open(output.name, "rb") as f:
+        quiz.pdf_file.save(f"quiz_{quiz.pk}_{unidad}.pdf", f)
+
+
+
 
 @method_decorator(login_required, name='dispatch')
 class MicroItinerarieDetailView(View):
     def get(self, request, pk):
         microItinerarie = get_object_or_404(MicroPlan, pk=pk, generatedContentId__user=request.user)
+
+
+        all_quizzes = Quiz.objects.filter(microplan=microItinerarie)
+        
+        
+        # Organizar quizzes por unidad
+        quizzes_by_unit = {}
+        total_units = len(microItinerarie.unit_title)
+
+
         duration = (microItinerarie.end_date - microItinerarie.start_date).days
         counter = len(microItinerarie.unit_title)
         print(counter, "counter")
+
+
+
+
+        for unit_num in range(1, total_units + 1):
+            quizzes_by_unit[unit_num] = []
+
+
+        # Agrupar quizzes por número de unidad
+        for quiz in all_quizzes:
+            unit_number = quiz.unit_number  # Asumiendo que tienes este campo
+            if unit_number in quizzes_by_unit:
+                quizzes_by_unit[unit_number].append({
+                    'id': quiz.id,
+                    'title': quiz.title,
+                    'content_topic': quiz.content_topic,
+                    'status': quiz.status,  # o el campo que uses para el estado
+                    'unit_number': quiz.unit_number,
+                    'pdf_file': quiz.pdf_file.url if quiz.pdf_file else '',
+                    'created_date': quiz.created_date.strftime('%Y-%m-%d'),
+                })
+
+        # Convertir a lista ordenada por unidad
+        quizzes_organized = []
+        for unit_num in range(1, total_units + 1):
+            quizzes_organized.append(quizzes_by_unit[unit_num])
+
+        print(quizzes_organized)
         
         context = {
             'microItinerarie': microItinerarie,
             'duration': duration,
             'counter': counter,
+            'quizzes': quizzes_organized
         }
+
+        
         
         return render(request, 'microItinerarieDetail.html', context)
+
+    
+
+    def post(self, request, pk):
+        content = request.POST.get('content')
+        unit_number = request.POST.get('unit_number')
+        microplan_id = request.POST.get('microplan_id')
+
+        # Llama a Gemini para generar las preguntas
+        preguntas = generar_preguntas_quiz(content)
+
+        titulo = f"Quiz Unidad {unit_number}"
+
+        # 1. Crea el quiz sin el PDF (el campo pdf_file puede quedar vacío por ahora)
+        quiz = Quiz.objects.create(
+            title=titulo,
+            unit_number=unit_number,
+            content_topic=content,
+            microplan_id=microplan_id,
+            created_by=request.user,
+            status='Generado'
+        )
+
+        # 2. Ahora sí genera el PDF y lo asocia al quiz
+        generar_pdf_quiz(titulo, preguntas, unit_number, content, quiz)
+        # (Tu función genera y guarda el PDF en quiz.pdf_file)
+
+        # 3. Listo, ahora puedes renderizar la página de detalle
+        return redirect('educamy:detail_micro_plan', pk=pk)
 
 
 
@@ -393,17 +954,31 @@ def parse_gemini_response_to_micro_units(text):
     return unidades
 
 
+def get_unit_date_ranges(start_date, end_date, units_number):
+    total_days = (end_date - start_date).days + 1  # Incluye ambos extremos
+    days_per_unit = total_days // units_number
+    extra_days = total_days % units_number  # Será 0 si es exacto, como tu ejemplo
+
+    ranges = []
+    current_start = start_date
+
+    for i in range(units_number):
+        # Si hay días extra, añade uno a las primeras unidades (no aplica aquí porque 30/5=6 exacto)
+        days = days_per_unit + (1 if i < extra_days else 0)
+        current_end = current_start + timedelta(days=days-1)
+        ranges.append((current_start, current_end))
+        current_start = current_end + timedelta(days=1)
+    return ranges
 
 
 
-
-def format_micro_units_to_boxes(text, school_subject):
+def format_micro_units_to_boxes(text, school_subject, start_date, end_date, units_number):
     # Usamos el parseador adecuado para MicroPlan
     unidades = parse_gemini_response_to_micro_units(text)
     html = ""
 
+    fechas = get_unit_date_ranges(start_date, end_date, units_number)
 
-   
 
     # Derive the subject prefix (e.g., "EF" from "Educación Física")
     subject_initials = "".join([word[0] for word in school_subject.name.split() if word[0].isalpha()]).upper()
@@ -452,11 +1027,20 @@ def format_micro_units_to_boxes(text, school_subject):
                     border: 1px solid #000;
                 ">
                     Unidad {unit_index}: {unidad['titulo']}
+                    
+                    <div style="display:flex; gap:10px;">
+                        <p style="float:right; font-size:13px; font-weight:bold; color:#444;">Desde: {fechas[unit_index-1][0].strftime('%d/%m/%Y')}</p>
+                        <p style="float:right; font-size:13px; font-weight:bold; color:#444;">Hasta: {fechas[unit_index-1][1].strftime('%d/%m/%Y')}</p>
+                    </div>
+
+
                 </th>
             </tr>
             
             <tr>
         """
+
+
         
         for title, _key in sections:
             html += f"""
@@ -508,10 +1092,12 @@ def format_micro_units_to_boxes(text, school_subject):
 
 
 
-def format_annual_units_to_boxes(text, school_subject):
+def format_annual_units_to_boxes(text, school_subject, start_date, end_date, units_number):
     unidades = parse_gemini_response_to_units(text)
     html = ""
     subject_initials = "".join([word[0] for word in school_subject.name.split() if word[0].isalpha()]).upper()
+
+    fechas = get_unit_date_ranges(start_date, end_date, units_number)
 
 
     section_prefix_map = {
@@ -557,6 +1143,10 @@ def format_annual_units_to_boxes(text, school_subject):
                     border: 1px solid #000;
                 ">
                     Unidad {unit_index}: {unidad['titulo']}
+                    <div style="display:flex; gap:10px;">
+                        <p style="float:right; font-size:13px; font-weight:bold; color:#444;">Desde: {fechas[unit_index-1][0].strftime('%d/%m/%Y')}</p>
+                        <p style="float:right; font-size:13px; font-weight:bold; color:#444;">Hasta: {fechas[unit_index-1][1].strftime('%d/%m/%Y')}</p>
+                    </div>
                 </th>
             </tr>
             
@@ -695,6 +1285,10 @@ def generateContent(request):
             chat = model.start_chat(history=[])
 
 
+
+                
+
+
             if itinearieType == 'micro':
                 # Generar un solo PROMPT grande
                 generarPlanMicrocurricular(start_date, end_date, units_number, level, school_subject, chat, user, college_name, teacher_name, area, transversal_values, parallel)
@@ -715,9 +1309,9 @@ def generateContent(request):
 
 
 def generarPlanMicrocurricular(start_date, end_date, units_number, level, school_subject, chat, user, college_name, teacher_name, area, transversal_values, parallel):
+
     delta_days = (end_date - start_date).days
     num_weeks = max(1, (delta_days + 6) // 7)
-
     prompt = f"""
         Eres un asistente educativo profesional. Genera la planificación completa de {units_number} unidades didácticas para la materia "{school_subject.name}", nivel "{level}" de educación básica.
 
@@ -767,14 +1361,14 @@ def generarPlanMicrocurricular(start_date, end_date, units_number, level, school
     if not unidades:
         print("Sigue sin parsear unidades:", generated_schema)
         return
-
+    
     # 3) Generar QR
     qr = qrcode.make(f"Plan Microcurricular - {college_name} - {teacher_name} - {school_subject.name}")
     buffer = BytesIO()
     qr.save(buffer, format="PNG")
     qr_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-    # 4) Generar HTML
+    # Generar PDF
     html_string = f"""
     <html>
     <head>
@@ -821,50 +1415,57 @@ def generarPlanMicrocurricular(start_date, end_date, units_number, level, school
     </head>
     <body>
 
-    <!-- ENCABEZADO -->
     <table class="sin-borde">
-        <tr>
-            <td style="width: 20%; text-align: left;">
-                <img src="https://educacion.gob.ec/wp-content/uploads/2024/03/Footer-1.png" style="max-height: 80px;" />
-            </td>
-            <td style="width: 60%; text-align: center;">
-                <div class="encabezado">ESCUELA FISCAL<br>“{college_name.upper()}”</div>
-                <div style="text-align: center; font-weight: bold; font-size: 14px;">
-                    PLANIFICACIÓN MICROCURRICULAR DE UNIDAD DIDÁCTICA O PARCIAL
-                </div>
-            </td>
-            <td style="width: 20%; text-align: right;">
-                <strong>AÑO LECTIVO<br>{start_date.year}-{end_date.year}</strong>
-            </td>
-        </tr>
+            <tr>
+                <td style="width: 20%; text-align: left;">
+                    <img src="https://educacion.gob.ec/wp-content/uploads/2024/03/Footer-1.png" style="max-height: 80px;" />
+                </td>   
+                <td style="width: 60%; text-align: center;">
+                    <div class="encabezado">ESCUELA FISCAL<br>“{college_name.upper()}”</div>
+                    <div style="text-align: center; font-weight: bold; font-size: 14px;">PLANIFICACIÓN MICROCURRICULAR DE UNIDAD DIDÁCTICA O PARCIAL</div>
+                </td>
+                <td style="width: 20%; text-align: right;">
+                    <strong>AÑO LECTIVO<br>{start_date.year}-{end_date.year}</strong>
+                </td>
+            </tr>
     </table>
-
-    <div class="seccion">1) Datos informativos</div>
+    <div class="seccion">1)Datos informativos</div>
     <table>
         <tr>
-            <td><strong>Docente:</strong></td><td>{teacher_name}</td>
-            <td><strong>Área:</strong></td><td>{area}</td>
+            <td style="width: 10%;"><strong>Docente:</strong></td>
+            <td style="width: 40%;">{teacher_name}</td>
+            <td style="width: 10%;"><strong>Área:</strong></td>
+            <td style="width: 40%;">{area}</td>
+        </tr>
+        <tr class="sub-header">
+            <td style="width: 10%;"><strong>Asignatura:</strong></td>
+            <td style="width: 40%;">{school_subject.name}</td>
+            <td style="width: 10%;"><strong>Grado:</strong></td>
+            <td style="width: 40%;">{level}</td>
         </tr>
         <tr>
-            <td><strong>Asignatura:</strong></td><td>{school_subject.name}</td>
-            <td><strong>Grado:</strong></td><td>{level}</td>
+            <td style="width: 10%;"><strong>N° Unidades:</strong> </td>
+            <td style="width: 40%;">{units_number}</td>
+            <td style="width: 10%;"><strong>Evaluado:</strong> </td>
+            <td style="width: 40%;"> </td>
         </tr>
         <tr>
-            <td><strong>N° Unidades:</strong></td><td>{units_number}</td>
-            <td><strong>Evaluado:</strong></td><td></td>
+            <td style="width: 10%;"><strong>N° Semanas:</strong></td>
+            <td style="width: 40%;">{ num_weeks }</td>
+            <td style="width: 10%;"><strong>Paralelo:</strong></td>
+            <td style="width: 40%;">{parallel}</td>
         </tr>
         <tr>
-            <td><strong>N° Semanas:</strong></td><td>{num_weeks}</td>
-            <td><strong>Paralelo:</strong></td><td>{parallel}</td>
-        </tr>
-        <tr>
-            <td><strong>Fecha de Inicio:</strong></td><td>{start_date.strftime("%d/%m/%Y")}</td>
-            <td><strong>Fecha de Finalización:</strong></td><td>{end_date.strftime("%d/%m/%Y")}</td>
+            <td style="width: 10%;"><strong>Fecha de Inicio:</strong></td>
+            <td style="width: 40%;">{start_date.strftime("%d/%m/%Y")}</td>
+            <td style="width: 10%;"><strong>Fecha de Finalización:</strong></td>
+            <td style="width: 40%;" colspan="3">{end_date.strftime("%d/%m/%Y")}</td>
         </tr>
     </table>
 
     <div class="seccion">2) CONTENIDO CURRICULAR POR UNIDAD</div>
-    {format_micro_units_to_boxes(generated_schema, school_subject)}
+    {format_micro_units_to_boxes(generated_schema, school_subject, start_date, end_date, units_number)}
+
 
     <!-- Firmas -->
     <div style="page-break-before: always;"></div>
@@ -909,41 +1510,39 @@ def generarPlanMicrocurricular(start_date, end_date, units_number, level, school
     </html>
     """
 
-    # 5) Guardar PDF
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as output:
         html = HTML(string=html_string)
         html.write_pdf(output.name)
-
+    
     gen = GeneratedContent.objects.create(user=user, school_subject=school_subject)
 
-    # 6) Guardar datos en modelo
-    titles       = [u["titulo"]        for u in unidades]
-    objectives   = [u["goals"]         for u in unidades]
+    # 5) Acumular en listas cada campo JSON
+    titles       = [u["titulo"]      for u in unidades]
+    objectives   = [u["goals"]       for u in unidades]
     contents     = [u["unit_contents"] for u in unidades]
-    criterios    = [u["criterios"]     for u in unidades]
-    indicadores  = [u["indicadores"]   for u in unidades]
+    criterios    = [u["criterios"]   for u in unidades]
+    indicadores  = [u["indicadores"] for u in unidades]
 
+    # 6) Crear un MicroPlan por unidad
     micro_plan = MicroPlan.objects.create(
-        generatedContentId      = gen,
-        school_subject          = school_subject,
-        unit_title              = titles,
-        goals                   = objectives,
-        grade                   = level,
-        start_date              = start_date,
-        end_date                = end_date,
-        topic                   = contents,
-        evaluation_criteria     = criterios,
-        evaluation_indicators   = indicadores,
-        teacher_name            = teacher_name,
-        college_name            = college_name,
-        area                    = area,
-        parallel                = parallel,
+        generatedContentId = gen,
+        school_subject = school_subject,
+        unit_title = titles,
+        goals = objectives,
+        grade = level,
+        start_date = start_date,
+        end_date = end_date,
+        topic = contents,
+        evaluation_criteria = criterios,
+        evaluation_indicators = indicadores,
+        teacher_name = teacher_name,
+        college_name = college_name,
+        area = area,
+        parallel = parallel,
     )
 
     with open(output.name, "rb") as f:
         micro_plan.pdf_file.save(f"plan_micro_{micro_plan.pk}.pdf", f)
-
-
 
 
 
@@ -978,12 +1577,13 @@ def generarPlanAnual(start_date, end_date, units_number, level, school_subject, 
                 Duracion Unidad {{Duración en semanas sugerida en base a la fecha inicio y fin establecida}} 
                 - Duracion
 
-                Repite para Unidad 2, Unidad 3, …, Unidad {units_number}.
-                Detalles:
-                - Fecha de inicio: {start_date}
-                - Fecha de fin:    {end_date}
-            """
 
+                NO agregues introducciones, conclusiones ni mensajes extra. Solo las unidades en el formato claro y directo.
+           
+
+                
+            """
+    # 1) Llamada a Gemini
     try:
         resp = chat.send_message(prompt)
         generated_schema = resp.text
@@ -991,161 +1591,185 @@ def generarPlanAnual(start_date, end_date, units_number, level, school_subject, 
         print("Error gemini:", e)
         return
 
+    # 2) Parsear en unidades
     unidades = parse_gemini_response_to_units(generated_schema)
     if not unidades:
         print("Sigue sin parsear unidades:", generated_schema)
         return
+    
 
-    # QR code
-    qr = qrcode.make(f"Plan Anual - {college_name} - {teacher_name} - {school_subject.name}")
+    # 3) Generar QR
+    qr = qrcode.make(f"Plan Microcurricular - {college_name} - {teacher_name} - {school_subject.name}")
     buffer = BytesIO()
     qr.save(buffer, format="PNG")
     qr_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-    html_string = f"""
-    <html>
-    <head>
+    styleForHtml = """
         <style>
-            @page {{
-                size: A4 landscape;
-                margin: 20mm;
-                @bottom-right {{
-                    content: "Página " counter(page) " de " counter(pages);
-                    font-size: 10px;
-                    color: #666;
-                }}
-            }}
-            body {{
-                font-family: 'Arial', sans-serif;
-                font-size: 12px;
-                color: #000;
-            }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            th, td {{
-                border: 1px solid black;
-                padding: 6px;
-                vertical-align: top;
-                text-align: left;
-            }}
-            .sin-borde td {{
-                border: none;
-            }}
-            .encabezado {{
-                text-align: center;
-                font-size: 16px;
-                font-weight: bold;
-                margin-bottom: 10px;
-            }}
-            .subtitulo {{
-                font-weight: bold;
-                background-color: #D9D9D9;
-            }}
-            .seccion {{
-                margin-top: 20px;
-                margin-bottom: 10px;
-                font-weight: bold;
-            }}
+            h1 {
+                font-size: 30px;
+                color: 
+            }
         </style>
-    </head>
-    <body>
 
-        <!-- ENCABEZADO -->
-        <table class="sin-borde">
-            <tr>
-                <td style="width: 20%; text-align: left;">
-                    <img src="https://educacion.gob.ec/wp-content/uploads/2024/03/Footer-1.png" style="max-height: 80px;" />
-                </td>
-                <td style="width: 60%; text-align: center;">
-                    <div class="encabezado">ESCUELA FISCAL<br>“{college_name.upper()}”</div>
-                    <div style="text-align: center; font-weight: bold; font-size: 14px;">
-                        PLANIFICACIÓN CURRICULAR ANUAL DE UNIDAD DIDÁCTICA O PARCIAL
-                    </div>
-                </td>
-                <td style="width: 20%; text-align: right;">
-                    <strong>AÑO LECTIVO<br>{start_date.year}-{end_date.year}</strong>
-                </td>
-            </tr>
-        </table>
-
-        <!-- DATOS INFORMATIVOS -->
-        <div class="seccion">1) Datos informativos</div>
-        <table class="seccion">
-            <tr>
-                <td style="width: 10%;"><strong>Docente:</strong></td><td style="width: 40%;">{teacher_name}</td>
-                <td style="width: 10%;"><strong>Área:</strong></td><td style="width: 40%;">{area}</td>
-            </tr>
-            <tr>
-                <td><strong>Asignatura:</strong></td><td>{school_subject.name}</td>
-                <td><strong>Grado:</strong></td><td>{level}</td>
-            </tr>
-            <tr>
-                <td><strong>N° Unidades:</strong></td><td>{units_number}</td>
-                <td><strong>N° Semanas:</strong></td><td>{num_weeks}</td>
-            </tr>
-            <tr>
-                <td><strong>Paralelo:</strong></td><td>{parallel}</td>
-                <td><strong>Evaluado:</strong></td><td></td>
-            </tr>
-            <tr>
-                <td><strong>Fecha de Inicio:</strong></td><td>{start_date.strftime("%d/%m/%Y")}</td>
-                <td><strong>Fecha de Fin:</strong></td><td>{end_date.strftime("%d/%m/%Y")}</td>
-            </tr>
-        </table>
-
-        <!-- CONTENIDO CURRICULAR -->
-        <div class="seccion">2) CONTENIDO CURRICULAR POR UNIDAD</div>
-        {format_annual_units_to_boxes(generated_schema, school_subject)}
-
-        <!-- SALTO DE PÁGINA Y FIRMAS CON QR CENTRADO -->
-        <div style="page-break-before: always;"></div>
-        <div style="margin-top: 50px; text-align: center;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                <tr style="font-weight: bold;">
-                    <td style="width: 33.33%;">ELABORADO</td>
-                    <td style="width: 33.33%;">REVISADO</td>
-                    <td style="width: 33.33%;">APROBADO</td>
-                </tr>
-                <tr>
-                    <td>Docente(s): {teacher_name}</td>
-                    <td>Director(a):</td>
-                    <td>Vicerrector:</td>
-                </tr>
-                <tr style="height: 100px;">
-                    <td style="vertical-align: bottom;">
-                        ___________________________<br>
-                        Firma
-                    </td>
-                    <td style="vertical-align: bottom;">
-                        ___________________________<br>
-                        Firma
-                    </td>
-                    <td style="vertical-align: bottom;">
-                        ___________________________<br>
-                        Firma
-                    </td>
-                </tr>
-                <tr>
-                    <td>Fecha: {end_date.strftime('%d-%m-%Y')}</td>
-                    <td>Fecha: {end_date.strftime('%d-%m-%Y')}</td>
-                    <td>Fecha: {end_date.strftime('%d-%m-%Y')}</td>
-                </tr>
-            </table><br>
-            <td style="vertical-align: middle;" rowspan="3">
-                <img src="data:image/png;base64,{qr_base64}" alt="QR code" style="height: 100px;" />
-            </td>
-        </div>
-    </body>
-    </html>
     """
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as output:
-        HTML(string=html_string).write_pdf(output.name)
+    # 3) Generar PDF completo
+    html_string = f"""
+            <html>
+                <head>
+                    <style>
+                        @page {{
+                            size: A4 landscape;
+                            margin: 20mm;
+                        }}
+                        body {{
+                            font-family: 'Arial', sans-serif;
+                            font-size: 12px;
+                            margin: 30px;
+                            color: #000;
+                        }}
+                        table {{
+                            width: 100%;
+                            border-collapse: collapse;
+                        }}
+                        th, td {{
+                            border: 1px solid black;
+                            padding: 6px;
+                            vertical-align: top;
+                            text-align: left;
+                        }}
+                        .sin-borde td {{
+                            border: none;
+                        }}
+                        .encabezado {{
+                            text-align: center;
+                            font-size: 16px;
+                            font-weight: bold;
+                            margin-bottom: 10px;
+                        }}
+                        .subtitulo {{
+                            font-weight: bold;
+                            background-color: #D9D9D9;
+                        }}
+                        .seccion {{
+                            margin-top: 20px;
+                            margin-bottom: 10px;
+                            font-weight: bold;
+                        }}
+                    </style>
+                </head>
+                    <body>
 
+                        <table class="sin-borde">
+                            <tr>
+                                <td style="width: 20%; text-align: left;">
+                                    <img src="https://educacion.gob.ec/wp-content/uploads/2024/03/Footer-1.png" style="max-height: 80px;" />
+                                </td>    
+                            
+                                <td style="width: 60%; text-align: center;">
+                                    <div class="encabezado">ESCUELA FISCAL<br>“{college_name.upper()}”</div>
+                                    <div style="text-align: center; font-weight: bold; font-size: 14px;">PLANIFICACIÓN CURRICULAR ANNUAL DE UNIDAD DIDÁCTICA O PARCIAL</div>
+                                </td>
+                                <td style="width: 20%; text-align: right;">
+                                    <strong>AÑO LECTIVO<br>{start_date.year}-{end_date.year}</strong>
+                                </td>
+                            </tr>
+                        </table>
+                        <div class="seccion">1)Datos informativos</div>
+
+                        <table class="seccion">
+                            <tr>
+                                <td style="width: 10%;"><strong>Docente:</strong></td>
+                                <td style="width: 40%;">{teacher_name}</td>
+                                <td style="width: 10%;"><strong>Área:</strong></td>
+                                <td style="width: 40%;">{area}</td>
+                            </tr>
+                            <tr class="sub-header">
+                                <td style="width: 10%;"><strong>Asignatura:</strong></td>
+                                <td style="width: 40%;">{school_subject.name}</td>
+                                <td style="width: 10%;"><strong>Grado:</strong></td>
+                                <td style="width: 40%;">{level}</td>
+                            </tr>
+                            <tr>
+                                <td style="width: 10%;"><strong>N° Unidades:</strong> </td>
+                                <td style="width: 40%;">{units_number}</td>
+                                <td style="width: 10%;"><strong>Evaluado:</strong> </td>
+                                <td style="width: 40%;"> </td>
+                            </tr>
+                            <tr>
+                                <td style="width: 10%;"><strong>N° Semanas:</strong></td>
+                                <td style="width: 40%;">{ num_weeks }</td>
+                                <td style="width: 10%;"><strong>Paralelo:</strong></td>
+                                <td style="width: 40%;">{parallel}</td>
+                            </tr>
+                            <tr>
+                                <td style="width: 10%;"><strong>Fecha de Inicio:</strong></td>
+                                <td style="width: 40%;">{start_date.strftime("%d/%m/%Y")}</td>
+                                <td style="width: 40%;" colspan="3">{end_date.strftime("%d/%m/%Y")}</td>
+                            </tr>
+                        </table>
+
+                        
+
+                        <div class="seccion">2) CONTENIDO CURRICULAR POR UNIDAD</div>
+
+                        {format_annual_units_to_boxes(generated_schema, school_subject, start_date, end_date, units_number)}
+
+
+                        <!-- Firmas -->
+                        <div style="page-break-before: always;"></div>
+                        <div style="margin-top: 50px; text-align: center;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr style="font-weight: bold;">
+                                    <td style="width: 33.33%;">ELABORADO</td>
+                                    <td style="width: 33.33%;">REVISADO</td>
+                                    <td style="width: 33.33%;">APROBADO</td>
+                                </tr>
+                                <tr>
+                                    <td>Docente(s): {teacher_name}</td>
+                                    <td>Director(a):</td>
+                                    <td>Vicerrector:</td>
+                                </tr>
+                                <tr style="height: 100px;">
+                                    <td style="vertical-align: bottom;">
+                                        ___________________________<br>
+                                        Firma
+                                    </td>
+                                    <td style="vertical-align: bottom;">
+                                        ___________________________<br>
+                                        Firma
+                                    </td>
+                                    <td style="vertical-align: bottom;">
+                                        ___________________________<br>
+                                        Firma
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Fecha: {end_date.strftime('%d-%m-%Y')}</td>
+                                    <td>Fecha: {end_date.strftime('%d-%m-%Y')}</td>
+                                    <td>Fecha: {end_date.strftime('%d-%m-%Y')}</td>
+                                </tr>
+                            </table><br>
+                            <td style="text-align: center;">
+                                <img src="data:image/png;base64,{qr_base64}" alt="QR code" style="height: 100px;" />
+                            </td>
+                        </div>
+
+
+                    </body>
+            </html>
+                """
+
+
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as output:
+        html = HTML(string=html_string)
+        html.write_pdf(output.name)
+    
     gen = GeneratedContent.objects.create(user=user, school_subject=school_subject)
 
+    # 5) Acumular en listas cada campo JSON
     titles       = [u["titulo"]      for u in unidades]
     objectives   = [u["objetivos"]   for u in unidades]
     contents     = [u["contenidos"]  for u in unidades]
@@ -1153,33 +1777,73 @@ def generarPlanAnual(start_date, end_date, units_number, level, school_subject, 
     criterios    = [u["criterios"]   for u in unidades]
     indicadores  = [u["indicadores"] for u in unidades]
 
+    
+        # 5) Crear un AnualPlan por unidad
     plan = AnualPlan.objects.create(
         generatedContentId    = gen,
         school_subject        = school_subject,
         unit_title            = titles,
-        goals                 = objectives,
-        grade                 = level,
-        start_date            = start_date,
-        end_date              = end_date,
+        goals       = objectives,
+        grade = level,
+        start_date = start_date,
+        end_date   = end_date,
         unit_contents         = contents,
         methodologies         = metodologias,
         evaluation_criteria   = criterios,
         evaluation_indicators = indicadores,
-        parallel              = parallel,
-        area                  = area,
-        teacher_name          = teacher_name,
-        college_name          = college_name,
+        parallel = parallel,
+        area = area,
+        teacher_name = teacher_name,
+        college_name = college_name,
+        
     )
 
     with open(output.name, "rb") as f:
         plan.pdf_file.save(f"plan_anual_{plan.pk}.pdf", f)
-   
 
-
-
-  
+    
 
 
 
 
 
+
+def generar_preguntas_quiz(content):
+    
+    prompt = f"""
+    Eres un generador de quizzes para profesores.
+    Redacta 10 preguntas de opción múltiple sobre: "{content}".
+    
+    Para cada pregunta:
+    - Escribe la pregunta
+    - Proporciona exactamente 4 opciones (A, B, C, D)
+    - Indica cuál es la respuesta correcta al final de cada pregunta
+    
+    Formato requerido:
+    1. [Pregunta]
+    A) [Opción A]
+    B) [Opción B]
+    C) [Opción C]
+    D) [Opción D]
+    Respuesta correcta: [Letra]
+    
+    2. [Siguiente pregunta]
+    ...y así sucesivamente
+    """
+    try:
+        chat = model.start_chat(history=[])
+        resp = chat.send_message(prompt)
+        preguntas = resp.text
+        return preguntas
+    except Exception as e:
+        print("Error generando quiz:", e)
+        return "No se pudo generar el quiz automáticamente."
+    
+
+
+
+def delete_quiz(request, quiz_id):
+    quiz = get_object_or_404(Quiz, id=quiz_id)
+    annual_plan_id = quiz.anual_plan_id  
+    quiz.delete()
+    return redirect('educamy:detail_annual_plan', pk=annual_plan_id)

@@ -8,5 +8,5 @@ url = "https://api.slidespeak.co/api/v1/presentation/generate"
 
 headers = {
     "Content-Type": "application/json",
-    "x-api-key": "YOUR_API_KEY"
+    "x-api-key": SLIDESPEAK_API_KEY
 }

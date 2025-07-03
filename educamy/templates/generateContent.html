@@ -3,20 +3,19 @@
 {% load tailwind_filters %}
 
 {% block dashboardContent %}
-  <div class="max-w-6xl mx-auto p-8 bg-white shadow-md rounded-lg">
+  <div class="max-w-7xl mx-auto p-4 bg-white shadow-md rounded-lg">
     {% include "components/btnBack.html" %}
     <div class="mb-4">
       <h2 class="text-3xl font-bold">Genera Itinerario</h2>
       <p class="text-sm opacity-75">Proporciona todos los datos necesarios para poder generar tu itinerario</p>
     </div>
-    <form class="grid lg:grid-cols-2 grid-cols-1 gap-4" method="POST">
+    <form class="grid lg:grid-cols-2 grid-cols-2 gap-4" method="POST">
       {% csrf_token %}
       {{ form|crispy }}
       <div id="bt-generate" class="flex justify-end col-span-2">
-        <button type="submit" class="mt-4 bg-purple-700 hover:bg-purple-900 text-white font-bold py-2 px-4 rounded">
-          Generar Contenido
-        </button>
+        <button type="submit" class="mt-4 bg-purple-700 hover:bg-purple-900 text-white font-bold py-2 px-4 rounded">Generar Contenido</button>
       </div>
+     
 
       <div class="flex justify-end col-span-2">
         <div class="loader hidden"></div>
@@ -32,11 +31,11 @@
 
     form.addEventListener('submit', (event) => {
       if (!form.checkValidity()) {
-        // ❌ Hay errores en el formulario, no hacemos nada
+        // Hay errores en el formulario, no hacemos nada
         return;
       }
 
-      // ✅ El formulario pasa validación HTML5
+      // El formulario pasa validación HTML5
       btn.classList.add('hidden');
       loader.classList.remove('hidden');
     });
@@ -69,8 +68,8 @@
   });
   </script>
 
-  <!-- Estilo del loader -->
   <style>
+    /* From Uiverse.io by doniaskima */
     .loader {
       width: fit-content;
       font-weight: bold;
@@ -79,7 +78,7 @@
       background: radial-gradient(circle closest-side, #000 94%, #0000) right/calc(200% - 1em) 100%;
       animation: l24 1s infinite alternate linear;
     }
-
+    
     .loader::before {
       content: 'Generando...';
       line-height: 1em;
@@ -89,7 +88,7 @@
       -webkit-background-clip: text;
       background-clip: text;
     }
-
+    
     @keyframes l24 {
       100% {
         background-position: left;

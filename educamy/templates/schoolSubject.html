@@ -1,81 +1,105 @@
 {% extends 'layout.html' %}
 {% load tailwind_filters %}
 
-
-
 {% block dashboardContent %}
-    <section>
-        <h1 class="text-3xl font-bold">Materias</h1>
-        <h4 clasS="text-sm opacity-75">Gestiona tus materias académicas</h4>
+<section>
+    <h1 class="text-3xl font-bold">Materias</h1>
+    <h4 class="text-sm opacity-75">Gestiona tus materias académicas</h4>
 
-        <div class="flex gap-2 mt-4">
-            <button id="schoolSubjectListBtn" class="text-xs px-4 py-2 border-1 border-purple-300 rounded-md cursor-pointer">
-                Listado de Materias
-            </button>
-            <button id="createSchoolSubjectBtn" class="text-xs px-4 py-2 border-1 border-purple-300 rounded-md cursor-pointer">
-                Crear Materia
-            </button>
-        </div>
-        <div id="schoolSubjectsDiv" class="mt-4 grid lg:grid-cols-3 grid-cols-1">
-            {% for subjects in schoolSubjects  %}
-            
-            <div class="border-1 rounded-md border-purple-100 p-4 lg:w-[380px] w-full space-y-2">
-                <div>
-                    <h5 class="font-bold text-md">{{subjects.name}}</h5>
+    <div class="flex gap-2 mt-4">
+        <button id="schoolSubjectListBtn" class="text-xs px-4 py-2 bg-purple-600 text-white rounded-md cursor-pointer hover:bg-purple-700 transition-colors">
+            Listado de Materias
+        </button>
+        <button id="createSchoolSubjectBtn" class="text-xs px-4 py-2 border border-purple-600 bg-white text-purple-600 rounded-md cursor-pointer hover:bg-purple-50 transition-colors">
+            Crear Materia
+        </button>
+    </div>
 
-                </div>
-                <h6 class="opacity-75 text-xs">{{subjects.created_at}}</h6>
-                <p class="text-xs">{{subjects.description}}</p>
-
-                <div class="flex gap-4 mt-2 w-full justify-end">
-                    <a class="text-sm rounded-md bg-orange-500 text-white py-1 px-4" href="{% url 'educamy:edit_school_subject' subjects.pk %}">Editar</a>
-                    <form method="post" action="{% url 'educamy:delete_school_subject' subjects.pk %}" style="display:inline;">
-                        {% csrf_token %}
-                        <button type="submit" class="text-sm bg-red-700 text-white cursor-pointer py-1 px-3 rounded">Eliminar</button>
-                    </form>
-                </div>
+    <div id="schoolSubjectsDiv" class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for subjects in schoolSubjects %}
+        <div class="bg-white border rounded-md border-purple-100 p-4 space-y-2 shadow-md hover:shadow-lg transition-shadow">
+            <div>
+                <h5 class="font-bold text-md">{{ subjects.name }}</h5>
             </div>
-            {% endfor %}
-           
+            <h6 class="opacity-75 text-xs">{{ subjects.created_at }}</h6>
+            <p class="text-xs">{{ subjects.description }}</p>
 
-        </div>
-
-        <div id="createSubjectDiv" class="mt-4 hidden">
-            <h2 class="font-bold">Crear Materia</h2>
-            <h5 class="opacity-75 text-sm">Añade una nueva materia a tu catálogo académico</h5>
-
-            <div class="mt-4">
-                <form method="POST" class="w-full">
+            <div class="flex gap-4 mt-2 w-full justify-end">
+                <a class="text-sm rounded-md bg-orange-500 text-white py-1 px-4 hover:bg-orange-600 transition-colors" 
+                   href="{% url 'educamy:edit_school_subject' subjects.pk %}">Editar</a>
+                <form method="post" action="{% url 'educamy:delete_school_subject' subjects.pk %}" style="display:inline;">
                     {% csrf_token %}
-                    {{ form | crispy}}
-                    <div class="w-full flex justify-end mt-4">
-                        <button class="bg-purple-700 text-white py-1 px-4 rounded-md" type="submit">Crear</button>
-                    </div>
+                    <button type="submit" 
+                            class="text-sm bg-red-700 text-white cursor-pointer py-1 px-3 rounded hover:bg-red-800 transition-colors">
+                        Eliminar
+                    </button>
                 </form>
             </div>
         </div>
-    </section>
+        {% endfor %}
+    </div>
 
-    <script>
-        const schoolSubjectListBtn = document.getElementById('schoolSubjectListBtn');
-        const createSchoolSubjectBtn = document.getElementById('createSchoolSubjectBtn');
+    <div id="createSubjectDiv" class="mt-4 hidden">
+        <h2 class="font-bold">Crear Materia</h2>
+        <h5 class="opacity-75 text-sm">Añade una nueva materia a tu catálogo académico</h5>
 
+        <div class="mt-4">
+            <form method="POST" enctype="multipart/form-data" class="w-full">
+                {% csrf_token %}
+                {{ form.name|as_crispy_field }}
+                {{ form.description|as_crispy_field }}<br>
 
-        schoolSubjectListBtn.addEventListener('click', () => {
-            document.getElementById('schoolSubjectsDiv').classList.remove('hidden');
-            document.getElementById('createSubjectDiv').classList.add('hidden');
-        });
+                <!-- Campo personalizado para subir archivo -->
+                <div class="flex justify-between items-center w-full mb-4 min-h-[48px]">
+                    <label for="id_archivo" class="cursor-pointer flex items-center gap-4 group min-w-[200px]">
+                        <span class="text-sm text-purple-800 font-medium group-hover:text-purple-900 transition">
+                            Subir archivo
+                        </span>
 
-        createSchoolSubjectBtn.addEventListener('click', () => {
-            document.getElementById('schoolSubjectsDiv').classList.add('hidden');
-            document.getElementById('createSubjectDiv').classList.remove('hidden');
-        });
+                        <!-- SVG ICON -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="35" height="35" viewBox="0 0 256 256" fill="#b61fba"
+                             class="group-hover:fill-purple-700 transition-colors shrink-0">
+                            <g fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter"
+                               stroke-miterlimit="10" font-family="none" font-weight="none" font-size="none" text-anchor="none"
+                               style="mix-blend-mode: normal">
+                                <g transform="scale(9.84615,9.84615)">
+                                    <path d="M7,0c-2.20312,0 -4,1.79688 -4,4v18c0,2.20313 1.79688,4 4,4h12c2.20313,0 4,-1.79687 4,-4v-14c0,-1.0625 -0.97266,-2.07031 -2.71875,-3.78125c-0.24219,-0.23828 -0.50391,-0.50391 -0.75,-0.75c-0.24609,-0.24609 -0.51172,-0.47656 -0.75,-0.71875c-1.71094,-1.74609 -2.71875,-2.75 -3.78125,-2.75zM7,2h7.28125c0.72266,0.18359 0.71875,1.05078 0.71875,1.9375v3.0625c0,0.55078 0.44922,1 1,1h3c0.99609,0 2,0.00391 2,1v13c0,1.10547 -0.89453,2 -2,2h-12c-1.10547,0 -2,-0.89453 -2,-2v-18c0,-1.10547 0.89453,-2 2,-2zM7.8125,10c-0.55078,0.05078 -0.95703,0.54297 -0.90625,1.09375c0.05078,0.55078 0.54297,0.95703 1.09375,0.90625h10c0.35938,0.00391 0.69531,-0.18359 0.87891,-0.49609c0.17969,-0.3125 0.17969,-0.69531 0,-1.00781c-0.18359,-0.3125 -0.51953,-0.5 -0.87891,-0.49609h-10c-0.03125,0 -0.0625,0 -0.09375,0c-0.03125,0 -0.0625,0 -0.09375,0zM7.8125,14c-0.55078,0.05078 -0.95703,0.54297 -0.90625,1.09375c0.05078,0.55078 0.54297,0.95703 1.09375,0.90625h8c0.35938,0.00391 0.69531,-0.18359 0.87891,-0.49609c0.17969,-0.3125 0.17969,-0.69531 0,-1.00781c-0.18359,-0.3125 -0.51953,-0.5 -0.87891,-0.49609h-8c-0.03125,0 -0.0625,0 -0.09375,0c-0.03125,0 -0.0625,0 -0.09375,0zM7.8125,18c-0.55078,0.05078 -0.95703,0.54297 -0.90625,1.09375c0.05078,0.55078 0.54297,0.95703 1.09375,0.90625h10c0.35938,0.00391 0.69531,-0.18359 0.87891,-0.49609c0.17969,-0.3125 0.17969,-0.69531 0,-1.00781c-0.18359,-0.3125 -0.51953,-0.5 -0.87891,-0.49609h-10c-0.03125,0 -0.0625,0 -0.09375,0c-0.03125,0 -0.0625,0 -0.09375,0z"></path>
+                                </g>
+                            </g>
+                        </svg>
+                    </label>
+                    <input id="id_archivo" type="file" accept=".pdf" name="archivo" class="hidden" />
+                </div>
 
+                <div class="w-full flex justify-end mt-4">
+                    <button class="bg-purple-700 text-white py-1 px-4 rounded-md hover:bg-purple-800 transition-colors" 
+                            type="submit">Crear</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
 
-    </script>
+<script>
+    const schoolSubjectListBtn = document.getElementById('schoolSubjectListBtn');
+    const createSchoolSubjectBtn = document.getElementById('createSchoolSubjectBtn');
 
+    schoolSubjectListBtn.addEventListener('click', function () {
+        document.getElementById('schoolSubjectsDiv').classList.remove('hidden');
+        document.getElementById('createSubjectDiv').classList.add('hidden');
+        schoolSubjectListBtn.classList.add('bg-purple-600', 'text-white');
+        schoolSubjectListBtn.classList.remove('border', 'border-purple-600', 'bg-white', 'text-purple-600');
+        createSchoolSubjectBtn.classList.add('border', 'border-purple-600', 'bg-white', 'text-purple-600');
+        createSchoolSubjectBtn.classList.remove('bg-purple-600', 'text-white');
+    });
+
+    createSchoolSubjectBtn.addEventListener('click', function () {
+        document.getElementById('schoolSubjectsDiv').classList.add('hidden');
+        document.getElementById('createSubjectDiv').classList.remove('hidden');
+        createSchoolSubjectBtn.classList.add('bg-purple-600', 'text-white');
+        createSchoolSubjectBtn.classList.remove('border', 'border-purple-600', 'bg-white', 'text-purple-600');
+        schoolSubjectListBtn.classList.add('border', 'border-purple-600', 'bg-white', 'text-purple-600');
+        schoolSubjectListBtn.classList.remove('bg-purple-600', 'text-white');
+    });
+</script>
 {% endblock dashboardContent %}
-
-
-    
-

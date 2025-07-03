@@ -6,6 +6,7 @@ from django.contrib.auth.forms import UserChangeForm
 from .models import SchoolSubject
 from django.core.exceptions import ValidationError
 from datetime import date
+from .models import Profile 
   # Ya lo tienes arriba, perfecto
 
 
@@ -46,6 +47,39 @@ class CreateUser(UserCreationForm):
                            'No uses contraseñas habituales\n'
                            'No debe ser solo numeros'),
         }
+
+
+
+class UpdateProfile(UserChangeForm):
+    photo = forms.ImageField(required=False, label=_('Foto de perfil'))
+
+    password = None  # <-- Esto oculta el campo contraseña que Django pone por defecto
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'first_name', 'last_name']  # No incluyas 'password'
+        help_texts = {
+            'username': _(''),
+        }
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+
+        # Crear o actualizar perfil y foto (tu código)
+        if not hasattr(user, 'profile'):
+            profile = Profile(user=user)
+            profile.save()
+        else:
+            profile = user.profile
+
+        if 'photo' in self.cleaned_data and self.cleaned_data['photo']:
+            profile.photo = self.cleaned_data['photo']
+            profile.save()
+
+        if commit:
+            user.save()
+
+        return user
 
 
 
@@ -105,6 +139,7 @@ class itinerarieForm(forms.Form):
         label="Nombre del docente",
         required=False,
         widget=forms.TextInput(attrs={'class': BASE_INPUT_CLASS})
+        
     )
     college_name = forms.CharField(
         max_length=200,
@@ -120,7 +155,7 @@ class itinerarieForm(forms.Form):
         widget=forms.TextInput(attrs={'class': BASE_INPUT_CLASS})
     )
     
-
+    
 
 
     def clean_start_date(self):
@@ -162,16 +197,23 @@ class itinerarieForm(forms.Form):
 
 
 
+
 class AddSchoolSubjectForm(forms.ModelForm):
     class Meta:
         model = SchoolSubject
-        fields = ['name', 'description']
+        fields = ['name', 'description', 'file']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'file': forms.ClearableFileInput(attrs={'class': 'form-control p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500',
+            'accept': '.pdf,application/pdf'
+            })
         }
         labels = {
             'name': _('Nombre de la materia'),
             'description': _('Descripción de la materia'),
+            'file': _('Archivo de la materia'),
         }
-        
+
+       
+
